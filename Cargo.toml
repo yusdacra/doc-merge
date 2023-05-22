@@ -1,0 +1,18 @@
+[package]
+name = "doc-merge"
+version = "0.1.0"
+edition = "2021"
+authors = ["Luke Sneeringer <luke@sneeringer.com>"]
+description = "Combine rustdoc output of multiple, discrete crates"
+license = "MIT"
+readme = "README.md"
+exclude = [".github"]
+repository = "https://github.com/lukesneeringer/doc-merge"
+categories = ["development-tools", "documentation"]
+keywords = ["documentation", "rustdoc"]
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+fs_extra = "1"
+regex = "1"

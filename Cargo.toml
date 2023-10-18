@@ -1,6 +1,6 @@
 [package]
 name = "doc-merge"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["Luke Sneeringer <luke@sneeringer.com>"]
 description = "Combine rustdoc output of multiple, discrete crates"

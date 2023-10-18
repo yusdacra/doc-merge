@@ -100,7 +100,7 @@ impl DocMerge {
 
     // Add this crate's data to the search index and source file database.
     let key_regex = Regex::new(r#"^"([a-z0-9_]+)":"#)?;
-    for js in ["search-index.js", "source-files.js"] {
+    for js in ["search-index.js"] {
       // If the destination does not yet have this file, copy it over.
       if !self.dest.as_path().join(js).is_file() {
         fs::copy(self.src.as_path().join(js), &self.dest.join(js))?;

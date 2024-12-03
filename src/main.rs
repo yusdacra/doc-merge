@@ -99,14 +99,14 @@ impl DocMerge {
         }
 
         // parse all search-index.js files for crates
-        let search_index_regex = Regex::new(r"JSON\.parse\('.*'\)")?;
+        let search_index_regex = Regex::new(r"JSON\.parse\('(.*)'\)")?;
         let mut crates = BTreeMap::<String, JsonValue>::new();
         for docs_path in &self.src {
             let content = fs::read_to_string(docs_path.join("search-index.js"))?;
             let search_index_raw = search_index_regex
                 .captures(&content)
                 .expect("search-index.js must have searchIndex");
-            let search_index = jzon::parse(&search_index_raw[0])?;
+            let search_index = jzon::parse(&search_index_raw[1])?;
             for item in search_index
                 .as_array()
                 .expect("searchIndex json must be array")

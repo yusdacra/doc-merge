@@ -13,7 +13,7 @@ dependencies.
 ## Installation
 
 ```sh
-$ cargo install doc-merge
+$ cargo install --git https://github.com/yusdacra/doc-merge
 ```
 
 ## Usage

@@ -166,23 +166,25 @@ impl DocMerge {
         .truncate(true)
         .open(self.dest.as_path().join("index.html"))?,
       "{}",
-      include_str!("../data/index.html").replace(
-        "<!-- crates go here -->",
-        crates
-          .iter()
-          .map(|(k, v)| format!(
-            r#"
+      include_str!("../data/index.html")
+        .replace(
+          "<!-- crates go here -->",
+          crates
+            .iter()
+            .map(|(k, v)| format!(
+              r#"
             <li>
               <div class="item-name"><a href="{0}">{0}</a></div>
               <div class="desc docblock-short">{1}</div>
             </li>"#,
-            k,
-            v.as_ref().unwrap_or(&"".to_string())
-          ))
-          .collect::<Vec<String>>()
-          .join("\n")
-          .as_str()
-      )
+              k,
+              v.as_ref().unwrap_or(&"".to_string())
+            ))
+            .collect::<Vec<String>>()
+            .join("\n")
+            .as_str()
+        )
+        .replace("../", "./")
     )?;
 
     Ok(())

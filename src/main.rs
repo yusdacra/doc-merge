@@ -182,19 +182,21 @@ impl DocMerge {
                 .as_str()
         )?;
 
-        // pick and write index.html
-        let index_contents = fs::read_to_string(
+        let index_path = self.dest.as_path().join("index.html");
+        if fs::exists(&index_path)? {
+            fs::remove_file(&index_path)?;
+        }
+        #[cfg(unix)]
+        let symlink = std::os::unix::fs::symlink;
+        #[cfg(windows)]
+        let symlink = std::os::windows::fs::symlink_file;
+        symlink(
             self.dest
                 .as_path()
                 .join(&self.index_crate)
                 .join("index.html"),
+            &index_path,
         )?;
-        fs::write(
-            self.dest.as_path().join("index.html"),
-            // fix paths because it moved one level up
-            index_contents.replace("../", "./"),
-        )?;
-
         Ok(())
     }
 }

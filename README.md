@@ -18,14 +18,6 @@ $ cargo install doc-merge
 
 ## Usage
 
-From a crate root:
-
 ```sh
-$ doc-merge --dest /path/to/docs/
-```
-
-From somewhere else:
-
-```sh
-$ doc-merge --src /path/to/crate/target/doc/ --dest /path/to/docs/
+$ doc-merge --src /path/to/crate/target/doc/ --src /path/to/other/target/doc --dest /path/to/docs/
 ```

@@ -16,3 +16,4 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 fs_extra = "1"
 regex = "1"
+jzon = "0.12"

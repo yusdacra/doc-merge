@@ -36,30 +36,28 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
 use fs_extra::dir::CopyOptions;
+use jzon::JsonValue;
 use regex::Regex;
 
 /// Merge an individiual cargo doc site into a shared rustdoc site.
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 struct DocMerge {
-    /// The location of the documentation to merge in.
+    /// The locations of documentations to merge together.
     ///
     /// The documentation is expected to already be built, usually with `cargo doc --no-deps` or
     /// similar. Workspaces are supported.
-    #[arg(long, default_value = "./target/doc")]
-    src: PathBuf,
+    #[arg(long)]
+    src: Vec<PathBuf>,
 
     /// The root of the shared rustdoc site.
-    #[arg(long)]
+    #[arg(long, default_value = "./docs")]
     dest: PathBuf,
 
-    /// The name of the crate that will have it's index.html be copied and used.
+    /// The name of the crate that will have it's index.html be symlinked to the target directory.
+    /// If note passed, no index.html will be symlinked.
     #[arg(long)]
-    index_crate: String,
-
-    /// Create the destination directory if it does not exist.
-    #[arg(long)]
-    create_dest: bool,
+    index_crate: Option<String>,
 }
 
 macro_rules! fatal {
@@ -72,99 +70,52 @@ macro_rules! fatal {
 impl DocMerge {
     fn execute(self) -> Result<()> {
         // Sanity check: Does the source directory exist?
-        if !self.src.is_dir() {
-            fatal!(
-                "Source documentation not found at {}. Did you run `cargo doc`?",
-                self.src.to_str().expect("Invalid path")
-            );
+        if self.src.len() < 2 {
+            fatal!("At least two documentation paths must be passed for merging");
         }
-
-        // Sanity check: Does the destination directory exist?
-        if !self.dest.is_dir() {
-            match self.create_dest {
-                true => fs::create_dir_all(&self.dest)?,
-                false => fatal!(
-          "Destination directory {} not found. If this is intentional, use `--create-dest`.",
-          self.dest.to_str().expect("Invalid path")
-        ),
-            }
-        }
+        // create destination if it doesnt exist
+        fs::create_dir_all(&self.dest)?;
 
         // Copy the each subdirectory in the source to the destination (but not the files).
         let opts = CopyOptions {
             overwrite: true,
             ..Default::default()
         };
-        for entry in self.src.read_dir()? {
-            let entry = entry?;
-            if entry.path().is_dir() {
-                fs_extra::copy_items(&[entry.path()], &self.dest, &opts)?;
+        for src in &self.src {
+            for entry in src.read_dir()? {
+                let entry = entry?;
+                if entry.path().is_dir() {
+                    fs_extra::copy_items(&[entry.path()], &self.dest, &opts)?;
+                }
+                if entry
+                    .file_name()
+                    .to_str()
+                    .expect("Invalid filename")
+                    .ends_with(".html")
+                {
+                    fs::copy(entry.path(), &self.dest.join(entry.file_name()))?;
+                }
             }
-            if entry
-                .file_name()
-                .to_str()
-                .expect("Invalid filename")
-                .ends_with(".html")
+        }
+
+        // parse all search-index.js files for crates
+        let search_index_regex = Regex::new(r"JSON\.parse\('.*'\)")?;
+        let mut crates = BTreeMap::<String, JsonValue>::new();
+        for docs_path in &self.src {
+            let content = fs::read_to_string(docs_path.join("search-index.js"))?;
+            let search_index_raw = search_index_regex
+                .captures(&content)
+                .expect("search-index.js must have searchIndex");
+            let search_index = jzon::parse(&search_index_raw[0])?;
+            for item in search_index
+                .as_array()
+                .expect("searchIndex json must be array")
             {
-                fs::copy(entry.path(), &self.dest.join(entry.file_name()))?;
+                let crate_name = item[0].as_str().unwrap();
+                let crate_data = item[1].clone();
+                crates.insert(crate_name.to_owned(), crate_data);
             }
         }
-
-        // Add this crate's data to the search index and source file database.
-        let key_regex = Regex::new(r#"^"([a-z0-9_]+)":"#)?;
-        for js in ["search-index.js"] {
-            // If the destination does not yet have this file, copy it over.
-            if !self.dest.as_path().join(js).is_file() {
-                fs::copy(self.src.as_path().join(js), &self.dest.join(js))?;
-                continue;
-            }
-
-            // Read the source and destination files and ensure the presence of each of the source crates
-            // in the destination.
-            let mut src_js: BTreeMap<String, String> =
-                fs::read_to_string(self.src.as_path().join(js))?
-                    .split('\n')
-                    .filter_map(|line| {
-                        Some((
-                            key_regex.captures(line)?[1].to_string(),
-                            line.replace(r"}\", r"},\"),
-                        ))
-                    })
-                    .collect();
-            let mut contents = fs::read_to_string(self.dest.as_path().join(js))?
-                .split('\n')
-                .map(|line| {
-                    key_regex
-                        .captures(line)
-                        .and_then(|c| src_js.remove(&c[1]))
-                        .unwrap_or_else(|| line.to_string())
-                })
-                .collect::<Vec<String>>();
-            src_js.into_values().for_each(|v| contents.insert(1, v));
-
-            write!(
-                fs::OpenOptions::new()
-                    .write(true)
-                    .truncate(true)
-                    .open(self.dest.as_path().join(js))?,
-                "{}",
-                contents.join("\n").replace("},\\\n}');", "}\\\n}');")
-            )?;
-        }
-
-        // Okay, all the files except index.html and crates.js are in place.
-        // Read the search index again to get the information we need to build those.
-        let doc_regex = Regex::new(r#""doc":"([^"]+)"#)?;
-        let crates: BTreeMap<String, Option<String>> =
-            fs::read_to_string(self.dest.as_path().join("search-index.js"))?
-                .split('\n')
-                .filter_map(|line| {
-                    // Get the crate name, and also try to get a crate description if there is one.
-                    let crate_name = key_regex.captures(line)?[1].to_string();
-                    let crate_desc = doc_regex.captures(line).map(|c| c[1].to_string());
-                    Some((crate_name, crate_desc))
-                })
-                .collect();
 
         // Write the crates.js file.
         write!(
@@ -182,21 +133,36 @@ impl DocMerge {
                 .as_str()
         )?;
 
-        let index_path = self.dest.as_path().join("index.html");
-        if fs::exists(&index_path)? {
-            fs::remove_file(&index_path)?;
-        }
-        #[cfg(unix)]
-        let symlink = std::os::unix::fs::symlink;
-        #[cfg(windows)]
-        let symlink = std::os::windows::fs::symlink_file;
-        symlink(
-            self.dest
-                .as_path()
-                .join(&self.index_crate)
-                .join("index.html"),
-            &index_path,
+        // write search-index.js
+        let search_index_items = crates
+            .iter()
+            .map(|(name, data)| jzon::array![name.as_str(), data.to_owned()]);
+        let search_index_json = JsonValue::Array(search_index_items.collect());
+        write!(
+            fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(self.dest.as_path().join("search-index.js"))?,
+            include_str!("./templates/search-index.js"),
+            searchIndexJson = search_index_json,
         )?;
+
+        if let Some(index_crate) = self.index_crate.as_deref() {
+            let index_path = self.dest.as_path().join("index.html");
+            if fs::exists(&index_path)? {
+                fs::remove_file(&index_path)?;
+            }
+            #[cfg(unix)]
+            let symlink = std::os::unix::fs::symlink;
+            #[cfg(windows)]
+            let symlink = std::os::windows::fs::symlink_file;
+            symlink(
+                self.dest.as_path().join(index_crate).join("index.html"),
+                &index_path,
+            )?;
+        }
+
         Ok(())
     }
 }

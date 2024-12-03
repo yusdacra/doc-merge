@@ -1,7 +1,6 @@
 # Rust
 target/
 tarpaulin-report.html
-Cargo.lock
 
 # Mac OS X
 .DS_Store
